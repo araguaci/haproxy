@@ -4,7 +4,14 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM alpine:3.12
+FROM alpine:3.20
+
+# runtime dependencies
+RUN set -eux; \
+	apk add --no-cache \
+# @system-ca: https://github.com/docker-library/haproxy/pull/216
+		ca-certificates \
+	;
 
 # roughly, https://git.alpinelinux.org/aports/tree/main/haproxy/haproxy.pre-install?h=3.12-stable
 RUN set -eux; \
@@ -16,11 +23,14 @@ RUN set -eux; \
 		--no-create-home \
 		--system \
 		--uid 99 \
-		haproxy
+		haproxy \
+	; \
+	mkdir /var/lib/haproxy; \
+	chown haproxy:haproxy /var/lib/haproxy
 
-ENV HAPROXY_VERSION 1.7.14
-ENV HAPROXY_URL https://www.haproxy.org/download/1.7/src/haproxy-1.7.14.tar.gz
-ENV HAPROXY_SHA256 1f9fb6c5a342803037a622c7dd04702b0d010a88b5c3922cd3da71a34f3377a4
+ENV HAPROXY_VERSION 3.0.3
+ENV HAPROXY_URL https://www.haproxy.org/download/3.0/src/haproxy-3.0.3.tar.gz
+ENV HAPROXY_SHA256 39a73c187a0b00d2602cb3ffca52d1b59d90f09032734fe8c03eb2e29a7d19df
 
 # see https://sources.debian.net/src/haproxy/jessie/debian/rules/ for some helpful navigation of the possible "make" arguments
 RUN set -eux; \
@@ -29,14 +39,13 @@ RUN set -eux; \
 		gcc \
 		libc-dev \
 		linux-headers \
-		lua5.3-dev \
+		lua5.4-dev \
 		make \
 		openssl \
 		openssl-dev \
 		pcre2-dev \
 		readline-dev \
 		tar \
-		zlib-dev \
 	; \
 	\
 	wget -O haproxy.tar.gz "$HAPROXY_URL"; \
@@ -46,13 +55,12 @@ RUN set -eux; \
 	rm haproxy.tar.gz; \
 	\
 	makeOpts=' \
-		CFLAGS+="-Wno-address-of-packed-member" \
-		TARGET=linux2628 \
+		TARGET=linux-musl \
 		USE_GETADDRINFO=1 \
-		USE_LUA=1 LUA_INC=/usr/include/lua5.3 LUA_LIB=/usr/lib/lua5.3 \
+		USE_LUA=1 LUA_INC=/usr/include/lua5.4 LUA_LIB=/usr/lib/lua5.4 \
 		USE_OPENSSL=1 \
 		USE_PCRE2=1 USE_PCRE2_JIT=1 \
-		USE_ZLIB=1 \
+		USE_PROMEX=1 \
 		\
 		EXTRA_OBJS=" \
 		" \
@@ -85,8 +93,11 @@ RUN set -eux; \
 STOPSIGNAL SIGUSR1
 
 COPY docker-entrypoint.sh /usr/local/bin/
-RUN ln -s usr/local/bin/docker-entrypoint.sh / # backwards compat
 ENTRYPOINT ["docker-entrypoint.sh"]
 
-# no USER for backwards compatibility (to try to avoid breaking existing users)
+USER haproxy
+
+# https://github.com/docker-library/haproxy/issues/200
+WORKDIR /var/lib/haproxy
+
 CMD ["haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]

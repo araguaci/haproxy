@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# https://www.haproxy.org/#down ("LTS" vs "latest")
+# https://www.haproxy.org/#last ("LTS" vs "latest")
 declare -A aliases=(
-	[2.4]='lts latest'
+	[3.0]='lts latest'
 )
 
 self="$(basename "$BASH_SOURCE")"
@@ -77,8 +77,8 @@ for version; do
 
 	# dcorbett(-haproxy): maybe just a simple "-dev" without the 0 which always follows the latest dev branch
 	tagVersion="$version"
-	if [[ "$version" == *-rc ]] && [[ "$fullVersion" == *-dev* ]]; then
-		tagVersion="${version%-rc}-dev"
+	if [[ "$fullVersion" == *-dev* ]]; then
+		tagVersion="$version-dev"
 	fi
 
 	versionAliases=(
@@ -90,6 +90,10 @@ for version; do
 	for variant in '' alpine; do
 		export variant
 		dir="$version${variant:+/$variant}"
+		if [ ! -d "$dir" ]; then
+			# 2.2 can't be built on a supported Alpine release
+			continue
+		fi
 
 		commit="$(dirCommit "$dir")"
 
@@ -102,6 +106,17 @@ for version; do
 
 		parent="$(awk 'toupper($1) == "FROM" { print $2 }' "$dir/Dockerfile")"
 		arches="${parentRepoToArches[$parent]}"
+
+		suite="${parent#*:}" # "buster-slim", "buster"
+		suite="${suite%-slim}" # "buster"
+		if [ "$variant" = 'alpine' ]; then
+			suite="alpine$suite" # "alpine3.8"
+			suiteAliases=( "${versionAliases[@]/%/-$suite}" )
+		else
+			suiteAliases=( "${variantAliases[@]/%/-$suite}" )
+		fi
+		suiteAliases=( "${suiteAliases[@]//latest-/}" )
+		variantAliases+=( "${suiteAliases[@]}" )
 
 		echo
 		cat <<-EOE

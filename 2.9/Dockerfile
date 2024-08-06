@@ -4,7 +4,16 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM debian:buster-slim
+FROM debian:bookworm-slim
+
+# runtime dependencies
+RUN set -eux; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+# @system-ca: https://github.com/docker-library/haproxy/pull/216
+		ca-certificates \
+	; \
+	rm -rf /var/lib/apt/lists/*
 
 # roughly, https://salsa.debian.org/haproxy-team/haproxy/-/blob/732b97ae286906dea19ab5744cf9cf97c364ac1d/debian/haproxy.postinst#L5-6
 RUN set -eux; \
@@ -15,26 +24,27 @@ RUN set -eux; \
 		--no-create-home \
 		--system \
 		--uid 99 \
-		haproxy
+		haproxy \
+	; \
+	mkdir /var/lib/haproxy; \
+	chown haproxy:haproxy /var/lib/haproxy
 
-ENV HAPROXY_VERSION 1.7.14
-ENV HAPROXY_URL https://www.haproxy.org/download/1.7/src/haproxy-1.7.14.tar.gz
-ENV HAPROXY_SHA256 1f9fb6c5a342803037a622c7dd04702b0d010a88b5c3922cd3da71a34f3377a4
+ENV HAPROXY_VERSION 2.9.9
+ENV HAPROXY_URL https://www.haproxy.org/download/2.9/src/haproxy-2.9.9.tar.gz
+ENV HAPROXY_SHA256 fa745236898549103e47799067cbc60de7ab78402484ba002ed56b05a0f93b5e
 
 # see https://sources.debian.net/src/haproxy/jessie/debian/rules/ for some helpful navigation of the possible "make" arguments
 RUN set -eux; \
 	\
 	savedAptMark="$(apt-mark showmanual)"; \
 	apt-get update && apt-get install -y --no-install-recommends \
-		ca-certificates \
 		gcc \
 		libc6-dev \
-		liblua5.3-dev \
+		liblua5.4-dev \
 		libpcre2-dev \
 		libssl-dev \
 		make \
 		wget \
-		zlib1g-dev \
 	; \
 	rm -rf /var/lib/apt/lists/*; \
 	\
@@ -45,12 +55,12 @@ RUN set -eux; \
 	rm haproxy.tar.gz; \
 	\
 	makeOpts=' \
-		TARGET=linux2628 \
+		TARGET=linux-glibc \
 		USE_GETADDRINFO=1 \
-		USE_LUA=1 LUA_INC=/usr/include/lua5.3 \
+		USE_LUA=1 LUA_INC=/usr/include/lua5.4 \
 		USE_OPENSSL=1 \
 		USE_PCRE2=1 USE_PCRE2_JIT=1 \
-		USE_ZLIB=1 \
+		USE_PROMEX=1 \
 		\
 		EXTRA_OBJS=" \
 		" \
@@ -72,7 +82,7 @@ RUN set -eux; \
 	apt-mark auto '.*' > /dev/null; \
 	[ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; \
 	find /usr/local -type f -executable -exec ldd '{}' ';' \
-		| awk '/=>/ { print $(NF-1) }' \
+		| awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); printf "*%s\n", so }' \
 		| sort -u \
 		| xargs -r dpkg-query --search \
 		| cut -d: -f1 \
@@ -91,8 +101,11 @@ RUN set -eux; \
 STOPSIGNAL SIGUSR1
 
 COPY docker-entrypoint.sh /usr/local/bin/
-RUN ln -s usr/local/bin/docker-entrypoint.sh / # backwards compat
 ENTRYPOINT ["docker-entrypoint.sh"]
 
-# no USER for backwards compatibility (to try to avoid breaking existing users)
+USER haproxy
+
+# https://github.com/docker-library/haproxy/issues/200
+WORKDIR /var/lib/haproxy
+
 CMD ["haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]

@@ -4,7 +4,14 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM alpine:3.14
+FROM alpine:3.20
+
+# runtime dependencies
+RUN set -eux; \
+	apk add --no-cache \
+# @system-ca: https://github.com/docker-library/haproxy/pull/216
+		ca-certificates \
+	;
 
 # roughly, https://git.alpinelinux.org/aports/tree/main/haproxy/haproxy.pre-install?h=3.12-stable
 RUN set -eux; \
@@ -16,11 +23,14 @@ RUN set -eux; \
 		--no-create-home \
 		--system \
 		--uid 99 \
-		haproxy
+		haproxy \
+	; \
+	mkdir /var/lib/haproxy; \
+	chown haproxy:haproxy /var/lib/haproxy
 
-ENV HAPROXY_VERSION 2.5-dev1
-ENV HAPROXY_URL https://www.haproxy.org/download/2.5/src/devel/haproxy-2.5-dev1.tar.gz
-ENV HAPROXY_SHA256 fdd9153253340f6a731dcfc6a8b3d90cc9a2d14123cc5964a73fdfda19851c84
+ENV HAPROXY_VERSION 2.8.10
+ENV HAPROXY_URL https://www.haproxy.org/download/2.8/src/haproxy-2.8.10.tar.gz
+ENV HAPROXY_SHA256 0d63cd46d9d10ac7dbc02f3c6769c1908f221e0a5c5b655a194655f7528d612a
 
 # see https://sources.debian.net/src/haproxy/jessie/debian/rules/ for some helpful navigation of the possible "make" arguments
 RUN set -eux; \
@@ -86,4 +96,8 @@ COPY docker-entrypoint.sh /usr/local/bin/
 ENTRYPOINT ["docker-entrypoint.sh"]
 
 USER haproxy
+
+# https://github.com/docker-library/haproxy/issues/200
+WORKDIR /var/lib/haproxy
+
 CMD ["haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]

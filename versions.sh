@@ -12,60 +12,37 @@ else
 fi
 versions=( "${versions[@]%/}" )
 
-defaultDebianSuite='buster-slim'
+defaultDebianSuite='bookworm-slim'
 declare -A debianSuite=(
-	#[1.6]='stretch-slim'
+	[2.2]='bullseye-slim'
 )
-defaultAlpineVersion='3.14'
+defaultAlpineVersion='3.20'
 declare -A alpineVersion=(
-	# Alpine 3.13 upgraded to GCC 10, so 1.7 fails:
-	# multiple definition of `pool2_trash'; src/haproxy.o:(.bss+0x0): first defined here
-	# collect2: error: ld returned 1 exit status
-	[1.7]='3.12'
 )
 
 for version in "${versions[@]}"; do
-	rcGrepV='-v'
-	rcVersion="${version%-rc}"
-	if [ "$rcVersion" != "$version" ]; then
-		rcGrepV=
-	fi
+	export version
+	export url="https://www.haproxy.org/download/$version/src"
+	export debian="${debianSuite[$version]:-$defaultDebianSuite}"
+	export alpine="${alpineVersion[$version]:-$defaultAlpineVersion}"
 
-	fullVersion="$(
-		{
-			curl -fsSL --compressed 'https://www.haproxy.org/download/'"$rcVersion"'/src/'
-			if [ "$rcVersion" != "$version" ]; then
-				curl -fsSL --compressed 'https://www.haproxy.org/download/'"$rcVersion"'/src/devel/'
-			fi
-		} \
-			| grep -o '<a href="haproxy-'"$rcVersion"'[^"/]*\.tar\.gz"' \
-			| sed -r 's!^<a href="haproxy-([^"/]+)\.tar\.gz"$!\1!' \
-			| grep $rcGrepV -E 'rc|dev' \
-			| sort -V \
-			| tail -1
+	doc="$(
+		curl -fsSL "$url/releases.json" | jq -c '
+			{ version: .latest_release } + .releases[.latest_release]
+			| {
+				version: .version,
+				url: (env.url + "/" + .file),
+				sha256: .sha256,
+				debian: env.debian,
+				alpine: env.alpine,
+			}
+			# remove Alpine from versions where it cannot be built on any active Alpine release
+			| if [ "2.2" ] | index(env.version) then del(.alpine) else . end
+		'
 	)"
-	url="https://www.haproxy.org/download/$rcVersion/src"
-	if [[ "$fullVersion" == *dev* ]]; then
-		url+='/devel'
-	fi
-	url+="/haproxy-$fullVersion.tar.gz"
-	sha256="$(curl -fsSL --compressed "$url.sha256" | cut -d' ' -f1)"
 
-	echo "$version: $fullVersion ($sha256, $url)"
-
-	versionSuite="${debianSuite[$version]:-$defaultDebianSuite}"
-	alpine="${alpineVersion[$version]:-$defaultAlpineVersion}"
-
-	export version fullVersion sha256 url versionSuite alpine
-	json="$(jq <<<"$json" -c '
-		.[env.version] = {
-			version: env.fullVersion,
-			sha256: env.sha256,
-			url: env.url,
-			debian: env.versionSuite,
-			alpine: env.alpine,
-		}
-	')"
+	jq <<<"$doc" -r 'env.version + ": " + .version'
+	json="$(jq <<<"$json" -c --argjson doc "$doc" '.[env.version] = $doc')"
 done
 
 jq <<<"$json" -S . > versions.json

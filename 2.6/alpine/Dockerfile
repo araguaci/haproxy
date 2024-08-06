@@ -4,7 +4,14 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM alpine:3.14
+FROM alpine:3.20
+
+# runtime dependencies
+RUN set -eux; \
+	apk add --no-cache \
+# @system-ca: https://github.com/docker-library/haproxy/pull/216
+		ca-certificates \
+	;
 
 # roughly, https://git.alpinelinux.org/aports/tree/main/haproxy/haproxy.pre-install?h=3.12-stable
 RUN set -eux; \
@@ -16,11 +23,14 @@ RUN set -eux; \
 		--no-create-home \
 		--system \
 		--uid 99 \
-		haproxy
+		haproxy \
+	; \
+	mkdir /var/lib/haproxy; \
+	chown haproxy:haproxy /var/lib/haproxy
 
-ENV HAPROXY_VERSION 2.3.12
-ENV HAPROXY_URL https://www.haproxy.org/download/2.3/src/haproxy-2.3.12.tar.gz
-ENV HAPROXY_SHA256 684670d71ffe1ab3f0bfd1be0e55ea9d932732081dd01858b9e351c1a909be3e
+ENV HAPROXY_VERSION 2.6.18
+ENV HAPROXY_URL https://www.haproxy.org/download/2.6/src/haproxy-2.6.18.tar.gz
+ENV HAPROXY_SHA256 1b36d3c618360eff7cdc2b70dd53affdf9c939d0fdf8602ac2d77018535f709a
 
 # see https://sources.debian.net/src/haproxy/jessie/debian/rules/ for some helpful navigation of the possible "make" arguments
 RUN set -eux; \
@@ -36,7 +46,6 @@ RUN set -eux; \
 		pcre2-dev \
 		readline-dev \
 		tar \
-		zlib-dev \
 	; \
 	\
 	wget -O haproxy.tar.gz "$HAPROXY_URL"; \
@@ -51,11 +60,9 @@ RUN set -eux; \
 		USE_LUA=1 LUA_INC=/usr/include/lua5.3 LUA_LIB=/usr/lib/lua5.3 \
 		USE_OPENSSL=1 \
 		USE_PCRE2=1 USE_PCRE2_JIT=1 \
-		USE_ZLIB=1 \
+		USE_PROMEX=1 \
 		\
 		EXTRA_OBJS=" \
-# see https://github.com/docker-library/haproxy/issues/94#issuecomment-505673353 for more details about prometheus support
-			contrib/prometheus-exporter/service-prometheus.o \
 		" \
 	'; \
 	\
@@ -86,8 +93,10 @@ RUN set -eux; \
 STOPSIGNAL SIGUSR1
 
 COPY docker-entrypoint.sh /usr/local/bin/
-RUN ln -s usr/local/bin/docker-entrypoint.sh / # backwards compat
 ENTRYPOINT ["docker-entrypoint.sh"]
 
-# no USER for backwards compatibility (to try to avoid breaking existing users)
+USER haproxy
+
+# no WORKDIR for backwards compatibility (to try to avoid breaking existing users)
+
 CMD ["haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]

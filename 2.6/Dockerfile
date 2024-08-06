@@ -4,7 +4,16 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM debian:buster-slim
+FROM debian:bookworm-slim
+
+# runtime dependencies
+RUN set -eux; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+# @system-ca: https://github.com/docker-library/haproxy/pull/216
+		ca-certificates \
+	; \
+	rm -rf /var/lib/apt/lists/*
 
 # roughly, https://salsa.debian.org/haproxy-team/haproxy/-/blob/732b97ae286906dea19ab5744cf9cf97c364ac1d/debian/haproxy.postinst#L5-6
 RUN set -eux; \
@@ -15,18 +24,20 @@ RUN set -eux; \
 		--no-create-home \
 		--system \
 		--uid 99 \
-		haproxy
+		haproxy \
+	; \
+	mkdir /var/lib/haproxy; \
+	chown haproxy:haproxy /var/lib/haproxy
 
-ENV HAPROXY_VERSION 2.5-dev1
-ENV HAPROXY_URL https://www.haproxy.org/download/2.5/src/devel/haproxy-2.5-dev1.tar.gz
-ENV HAPROXY_SHA256 fdd9153253340f6a731dcfc6a8b3d90cc9a2d14123cc5964a73fdfda19851c84
+ENV HAPROXY_VERSION 2.6.18
+ENV HAPROXY_URL https://www.haproxy.org/download/2.6/src/haproxy-2.6.18.tar.gz
+ENV HAPROXY_SHA256 1b36d3c618360eff7cdc2b70dd53affdf9c939d0fdf8602ac2d77018535f709a
 
 # see https://sources.debian.net/src/haproxy/jessie/debian/rules/ for some helpful navigation of the possible "make" arguments
 RUN set -eux; \
 	\
 	savedAptMark="$(apt-mark showmanual)"; \
 	apt-get update && apt-get install -y --no-install-recommends \
-		ca-certificates \
 		gcc \
 		libc6-dev \
 		liblua5.3-dev \
@@ -71,7 +82,7 @@ RUN set -eux; \
 	apt-mark auto '.*' > /dev/null; \
 	[ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; \
 	find /usr/local -type f -executable -exec ldd '{}' ';' \
-		| awk '/=>/ { print $(NF-1) }' \
+		| awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); printf "*%s\n", so }' \
 		| sort -u \
 		| xargs -r dpkg-query --search \
 		| cut -d: -f1 \
@@ -93,4 +104,7 @@ COPY docker-entrypoint.sh /usr/local/bin/
 ENTRYPOINT ["docker-entrypoint.sh"]
 
 USER haproxy
+
+# no WORKDIR for backwards compatibility (to try to avoid breaking existing users)
+
 CMD ["haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]

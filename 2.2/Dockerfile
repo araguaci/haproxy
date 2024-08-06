@@ -4,7 +4,16 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM debian:buster-slim
+FROM debian:bullseye-slim
+
+# runtime dependencies
+RUN set -eux; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+# @system-ca: https://github.com/docker-library/haproxy/pull/216
+		ca-certificates \
+	; \
+	rm -rf /var/lib/apt/lists/*
 
 # roughly, https://salsa.debian.org/haproxy-team/haproxy/-/blob/732b97ae286906dea19ab5744cf9cf97c364ac1d/debian/haproxy.postinst#L5-6
 RUN set -eux; \
@@ -15,18 +24,20 @@ RUN set -eux; \
 		--no-create-home \
 		--system \
 		--uid 99 \
-		haproxy
+		haproxy \
+	; \
+	mkdir /var/lib/haproxy; \
+	chown haproxy:haproxy /var/lib/haproxy
 
-ENV HAPROXY_VERSION 2.2.14
-ENV HAPROXY_URL https://www.haproxy.org/download/2.2/src/haproxy-2.2.14.tar.gz
-ENV HAPROXY_SHA256 6a9b702f04b07786f3e5878de8172a727acfdfdbc1cefe1c7a438df372f2fb61
+ENV HAPROXY_VERSION 2.2.33
+ENV HAPROXY_URL https://www.haproxy.org/download/2.2/src/haproxy-2.2.33.tar.gz
+ENV HAPROXY_SHA256 24f9eec04ee8d9e3652370be3db9852dec8aa650b3c8eeae969300c86b6fda5b
 
 # see https://sources.debian.net/src/haproxy/jessie/debian/rules/ for some helpful navigation of the possible "make" arguments
 RUN set -eux; \
 	\
 	savedAptMark="$(apt-mark showmanual)"; \
 	apt-get update && apt-get install -y --no-install-recommends \
-		ca-certificates \
 		gcc \
 		libc6-dev \
 		liblua5.3-dev \
@@ -74,7 +85,7 @@ RUN set -eux; \
 	apt-mark auto '.*' > /dev/null; \
 	[ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; \
 	find /usr/local -type f -executable -exec ldd '{}' ';' \
-		| awk '/=>/ { print $(NF-1) }' \
+		| awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); printf "*%s\n", so }' \
 		| sort -u \
 		| xargs -r dpkg-query --search \
 		| cut -d: -f1 \
@@ -97,4 +108,7 @@ RUN ln -s usr/local/bin/docker-entrypoint.sh / # backwards compat
 ENTRYPOINT ["docker-entrypoint.sh"]
 
 # no USER for backwards compatibility (to try to avoid breaking existing users)
+
+# no WORKDIR for backwards compatibility (to try to avoid breaking existing users)
+
 CMD ["haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
